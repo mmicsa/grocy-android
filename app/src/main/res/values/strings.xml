@@ -20,8 +20,8 @@
 
 <resources>
 
-  <string name="app_name" translatable="false">Grocy</string>
-  <string name="app_developer" translatable="false">Patrick &amp; Dominic Zedler</string>
+  <string name="app_name" translatable="false">Grocy MM</string>
+  <string name="app_developer" translatable="false">ChatGPT &amp; Patrick &amp; Dominic Zedler</string>
 
   <!-- This is an action – in English, it contains a verb.
    The string is visible after clicking long on the action button in purchase screen for example. -->
@@ -1396,4 +1396,18 @@
   <string name="mtm_notification">Certificate Verification</string>
   <string name="mtm_error_keystore">Exception on loading key store from file</string>
 
+  <string name="kitchen_consume">Consume</string>
+  <string name="kitchen_purchase">Purchase</string>
+  <string name="kitchen_print_list">PrintList</string>
+  <string name="kitchen_status_ready">Ready</string>
+  <string name="kitchen_mode">Mode: %1$s</string>
+  <string name="kitchen_print_list_selected">Print list selected</string>
+  <string name="kitchen_looking_up">Looking up product…</string>
+  <string name="kitchen_unknown_barcode">Unknown barcode</string>
+  <string name="kitchen_consumed_msg">Consumed: %1$s</string>
+  <string name="kitchen_consume_failed">Consume failed: %1$s</string>
+  <string name="kitchen_camera_active">Camera scanner active</string>
+  <string name="kitchen_no_barcode">No barcode scanned</string>
+  <string name="kitchen_barcode_received_purchase">Barcode received (PURCHASE mode)</string>
+  <string name="kitchen_ready_to_scan">Ready to scan</string>
 </resources>
