@@ -42,7 +42,18 @@
     android:layout_gravity="bottom"
     app:paddingBottomSystemWindowInsets="false"
     app:elevation="0dp"
-    app:menu="@menu/menu_empty" />
+    app:menu="@menu/menu_empty">
+
+    <com.google.android.material.button.MaterialButton
+      android:id="@+id/button_kitchen"
+      style="@style/Widget.Material3.Button.TextButton.Icon"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_gravity="center"
+      android:text="@string/kitchen_label_kitchen"
+      app:icon="@drawable/ic_round_kitchen" />
+
+  </com.google.android.material.bottomappbar.BottomAppBar>
 
   <com.google.android.material.floatingactionbutton.FloatingActionButton
     android:id="@+id/fab_main"

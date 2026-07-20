@@ -19,6 +19,9 @@
 
 package xyz.zedler.patrick.grocy.activity;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
@@ -29,16 +32,21 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.preference.PreferenceManager;
 import com.journeyapps.barcodescanner.BarcodeResult;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import xyz.zedler.patrick.grocy.R;
 import xyz.zedler.patrick.grocy.databinding.ActivityKitchenBinding;
 import xyz.zedler.patrick.grocy.model.Event;
 import xyz.zedler.patrick.grocy.scanner.ZXingScanCaptureManager;
+import xyz.zedler.patrick.grocy.util.PictureUtil;
 import xyz.zedler.patrick.grocy.viewmodel.KitchenViewModel;
 
 public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptureManager.BarcodeListener {
 
     private static final String TAG = "GROCY_KITCHEN";
+    private static final String PREF_LED_ENABLED = "kitchen_led_enabled";
     private static final long BARCODE_DEBOUNCE_MS = 2000;
 
     private enum Mode {
@@ -52,8 +60,10 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
     private String lastProcessedBarcode;
     private long lastProcessedTime;
     private ToneGenerator toneGenerator;
+    private SharedPreferences sharedPrefs;
     private final Handler resumeHandler = new Handler(Looper.getMainLooper());
     private Runnable resumeRunnable;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,6 +75,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         binding.getRoot().setKeepScreenOn(true);
 
         viewModel = new ViewModelProvider(this).get(KitchenViewModel.class);
+        sharedPrefs = PreferenceManager.getDefaultSharedPreferences(this);
 
         // Initial state
         binding.toggleGroupMode.check(R.id.button_consume);
@@ -82,6 +93,22 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         binding.buttonPrintList.setOnClickListener(v ->
                 Toast.makeText(this, R.string.kitchen_print_list_selected, Toast.LENGTH_SHORT).show()
         );
+
+        binding.buttonGrocy.setOnClickListener(v -> {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(intent);
+        });
+
+        // LED Toggle (Default OFF, manual control only)
+        boolean ledEnabled = sharedPrefs.getBoolean(PREF_LED_ENABLED, false);
+        binding.buttonLed.setChecked(ledEnabled);
+        binding.buttonLed.setOnClickListener(v -> {
+            boolean checked = binding.buttonLed.isChecked();
+            Log.d(TAG, "DIAG: LED toggle changed to: " + checked);
+            sharedPrefs.edit().putBoolean(PREF_LED_ENABLED, checked).apply();
+            setTorch(checked);
+        });
 
         // Scanner setup
         capture = new ZXingScanCaptureManager(this, binding.barcodeView, this);
@@ -101,11 +128,17 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         viewModel.getEventHandler().observeEvent(this, event -> {
             if (event.getType() == Event.CONSUME_SUCCESS) {
                 playSuccessBeep();
-                // Success: schedule resume after 800ms
                 scheduleResume(800);
+            } else if (event.getType() == Event.PURCHASE_SUCCESS) {
+                playSuccessBeep();
+                scheduleResume(800);
+            } else if (event.getType() == Event.TRANSACTION_SUCCESS) {
+                playCreationBong();
+                scheduleResume(1200);
+            } else if (event.getType() == Event.ERROR) {
+                playFailureSound();
+                scheduleResume(1200);
             } else if (event.getType() == Event.CONTINUE_SCANNING) {
-                // Known events that are not CONSUME_SUCCESS (Unknown barcode or API failure)
-                // Schedule resume after 1200ms
                 scheduleResume(1200);
             }
         });
@@ -121,8 +154,10 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         resumeRunnable = () -> {
             if (!isFinishing() && !isDestroyed()) {
                 try {
-                    capture.onResume(); // Unfreezes the preview
-                    capture.decode();   // Restarts detection
+                    Log.d(TAG, "DIAG: Resuming scanning. LED will remain: " + (binding.buttonLed.isChecked() ? "ON" : "OFF"));
+                    capture.onResume();
+                    capture.decode();
+                    setTorch(binding.buttonLed.isChecked());
                     binding.textScanStatus.setText(R.string.kitchen_ready_to_scan);
                 } catch (Exception e) {
                     Log.e(TAG, "Error resuming scanner", e);
@@ -132,9 +167,33 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         resumeHandler.postDelayed(resumeRunnable, delay);
     }
 
+    private void setTorch(boolean on) {
+        try {
+            if (on) {
+                binding.barcodeView.setTorchOn();
+            } else {
+                binding.barcodeView.setTorchOff();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "DIAG: Torch control failed: " + e.getMessage());
+        }
+    }
+
     private void playSuccessBeep() {
         if (toneGenerator != null) {
             toneGenerator.startTone(ToneGenerator.TONE_PROP_ACK, 200);
+        }
+    }
+
+    private void playCreationBong() {
+        if (toneGenerator != null) {
+            toneGenerator.startTone(ToneGenerator.TONE_CDMA_CONFIRM, 400);
+        }
+    }
+
+    private void playFailureSound() {
+        if (toneGenerator != null) {
+            toneGenerator.startTone(ToneGenerator.TONE_SUP_ERROR, 400);
         }
     }
 
@@ -143,7 +202,14 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         super.onResume();
         try {
             capture.onResume();
-            scheduleResume(500);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    boolean shouldBeOn = sharedPrefs.getBoolean(PREF_LED_ENABLED, false);
+                    Log.d(TAG, "DIAG: Camera ready. Restoring LED to: " + shouldBeOn);
+                    setTorch(shouldBeOn);
+                    capture.decode();
+                }
+            }, 500);
         } catch (Exception e) {
             Log.e(TAG, "Error in onResume", e);
         }
@@ -152,6 +218,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
     @Override
     protected void onPause() {
         super.onPause();
+        setTorch(false);
         if (resumeRunnable != null) {
             resumeHandler.removeCallbacks(resumeRunnable);
         }
@@ -165,6 +232,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
     @Override
     protected void onStop() {
         super.onStop();
+        setTorch(false);
         if (resumeRunnable != null) {
             resumeHandler.removeCallbacks(resumeRunnable);
         }
@@ -173,6 +241,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        setTorch(false);
         if (resumeRunnable != null) {
             resumeHandler.removeCallbacks(resumeRunnable);
         }
@@ -185,6 +254,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
             toneGenerator.release();
             toneGenerator = null;
         }
+        executor.shutdown();
     }
 
     @Override
@@ -203,23 +273,30 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
             String barcode = result.getText();
             long currentTime = System.currentTimeMillis();
 
-            if (currentMode == Mode.CONSUME) {
-                if (Boolean.TRUE.equals(viewModel.getIsProcessingLive().getValue())) {
-                    Log.d(TAG, "Barcode ignored: request in progress");
+            if (currentMode == Mode.CONSUME || currentMode == Mode.PURCHASE) {
+                if (viewModel.isBusy()) {
+                    Log.d(TAG, "DIAG: Barcode ignored: request in progress");
                 } else if (barcode.equals(lastProcessedBarcode) && (currentTime - lastProcessedTime < BARCODE_DEBOUNCE_MS)) {
-                    Log.d(TAG, "Barcode ignored: debounce active for " + barcode);
-                    // Even if ignored, we must resume detection if it's currently frozen
+                    Log.d(TAG, "DIAG: Barcode ignored: debounce active for " + barcode);
                     scheduleResume(BARCODE_DEBOUNCE_MS - (currentTime - lastProcessedTime));
                 } else {
                     lastProcessedBarcode = barcode;
                     lastProcessedTime = currentTime;
-                    viewModel.processBarcode(barcode);
+                    
+                    setTorch(false); // Off during processing to prevent glare
+
+                    Bitmap bitmap = result.getBitmap();
+                    if (bitmap != null) {
+                        executor.execute(() -> {
+                            byte[] bytes = PictureUtil.convertBitmapToByteArray(bitmap);
+                            new Handler(Looper.getMainLooper()).post(() -> 
+                                viewModel.lookupBarcode(barcode, bytes, currentMode == Mode.CONSUME)
+                            );
+                        });
+                    } else {
+                        viewModel.lookupBarcode(barcode, null, currentMode == Mode.CONSUME);
+                    }
                 }
-            } else {
-                binding.textLastBarcode.setText(barcode);
-                binding.textScanStatus.setText(R.string.kitchen_barcode_received_purchase);
-                // Unfreeze in PURCHASE mode too
-                scheduleResume(1000);
             }
         } else {
             capture.decode();

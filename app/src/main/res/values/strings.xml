@@ -1406,8 +1406,18 @@
   <string name="kitchen_unknown_barcode">Unknown barcode</string>
   <string name="kitchen_consumed_msg">Consumed: %1$s</string>
   <string name="kitchen_consume_failed">Consume failed: %1$s</string>
+  <string name="kitchen_purchased_msg">Purchased: %1$s</string>
+  <string name="kitchen_purchase_failed">Purchase failed: %1$s</string>
   <string name="kitchen_camera_active">Camera scanner active</string>
   <string name="kitchen_no_barcode">No barcode scanned</string>
   <string name="kitchen_barcode_received_purchase">Barcode received (PURCHASE mode)</string>
   <string name="kitchen_ready_to_scan">Ready to scan</string>
+  <string name="kitchen_created_msg">Created: %1$s</string>
+  <string name="kitchen_created_no_picture">Created: %1$s — picture not saved</string>
+  <string name="kitchen_error_partial">Created %1$s, but %2$s failed</string>
+  <string name="kitchen_unknown_location">Location \"Kitchen\" not found</string>
+  <string name="kitchen_unknown_unit">Quantity Unit \"Piece\" not found</string>
+  <string name="kitchen_led">LED</string>
+  <string name="kitchen_label_kitchen">Automated</string>
+  <string name="kitchen_label_grocy">Grocy</string>
 </resources>

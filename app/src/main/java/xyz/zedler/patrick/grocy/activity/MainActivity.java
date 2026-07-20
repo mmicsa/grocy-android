@@ -205,6 +205,12 @@ public class MainActivity extends AppCompatActivity {
     setContentView(binding.getRoot());
     binding.getRoot().setKeepScreenOn(true);
 
+    binding.buttonKitchen.setOnClickListener(v -> {
+      Intent intent = new Intent(this, KitchenActivity.class);
+      intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+      startActivity(intent);
+    });
+
     // NAVIGATION
     fragmentManager = getSupportFragmentManager();
     navUtil = new NavUtil(this, (controller, dest, args) -> {
