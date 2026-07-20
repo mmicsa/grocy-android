@@ -30,7 +30,7 @@
                 android:id="@+id/toggle_group_mode"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="2"
+                android:layout_weight="3.5"
                 android:layout_marginEnd="8dp"
                 app:singleSelection="true"
                 app:selectionRequired="true">
@@ -60,24 +60,24 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/button_print_list"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
+                android:layout_width="48dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 android:layout_marginEnd="8dp"
                 android:textAllCaps="false"
-                android:textSize="12sp"
-                android:text="@string/kitchen_print_list" />
+                app:icon="@drawable/ic_round_printer_anim"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/button_led"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
+                android:layout_width="48dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="0.6"
                 android:checkable="true"
                 android:textAllCaps="false"
-                android:textSize="12sp"
-                android:text="@string/kitchen_led" />
+                app:icon="@drawable/asld_kitchen_led"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp" />
 
         </LinearLayout>
 

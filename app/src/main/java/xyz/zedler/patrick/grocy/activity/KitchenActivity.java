@@ -19,16 +19,24 @@
 
 package xyz.zedler.patrick.grocy.activity;
 
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.drawable.AnimatedVectorDrawable;
+import android.graphics.drawable.Drawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+import android.os.RemoteException;
 import android.util.Log;
-import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
@@ -36,6 +44,8 @@ import androidx.preference.PreferenceManager;
 import com.journeyapps.barcodescanner.BarcodeResult;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import woyou.aidlservice.jiuiv5.ICallback;
+import woyou.aidlservice.jiuiv5.IWoyouService;
 import xyz.zedler.patrick.grocy.R;
 import xyz.zedler.patrick.grocy.databinding.ActivityKitchenBinding;
 import xyz.zedler.patrick.grocy.model.Event;
@@ -61,9 +71,94 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
     private long lastProcessedTime;
     private ToneGenerator toneGenerator;
     private SharedPreferences sharedPrefs;
-    private final Handler resumeHandler = new Handler(Looper.getMainLooper());
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable resumeRunnable;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    private IWoyouService printerService;
+    private boolean isPrinterBound = false;
+    private String currentPrinterError = null;
+
+    private final ICallback printerCallback = new ICallback.Stub() {
+        @Override
+        public void onRunResult(boolean success) throws RemoteException {
+            Log.d(TAG, "DIAG: Printer ICallback.onRunResult(success=" + success + ")");
+            if (success) {
+                if (currentPrinterError == null) {
+                    uiHandler.post(() -> binding.statusText.setText("Printer command accepted"));
+                }
+            } else {
+                uiHandler.post(() -> binding.statusText.setText("Printer error: Command execution failed"));
+            }
+        }
+
+        @Override
+        public void onReturnString(String result) throws RemoteException {
+            Log.d(TAG, "DIAG: Printer ICallback.onReturnString(result=" + result + ")");
+        }
+
+        @Override
+        public void onRaiseException(int code, String msg) throws RemoteException {
+            Log.e(TAG, "DIAG: Printer ICallback.onRaiseException(code=" + code + ", msg=" + msg + ")");
+            uiHandler.post(() -> binding.statusText.setText("Printer error " + code + ": " + msg));
+        }
+
+        @Override
+        public void onPrintResult(int code, String msg) throws RemoteException {
+            Log.d(TAG, "DIAG: Printer ICallback.onPrintResult(code=" + code + ", msg=" + msg + ")");
+            if (code == 0) {
+                if (currentPrinterError == null) {
+                    uiHandler.post(() -> binding.statusText.setText("Printer command accepted"));
+                }
+            } else {
+                uiHandler.post(() -> binding.statusText.setText("Printer error " + code + ": " + msg));
+            }
+        }
+    };
+
+    private final BroadcastReceiver printerStatusReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            Log.d(TAG, "DIAG: Received Printer Broadcast: " + action);
+
+            if ("woyou.aidlservice.jiuv5.OUT_OF_PAPER_ACTION".equals(action)) {
+                currentPrinterError = getString(R.string.kitchen_printer_state_out_of_paper);
+            } else if ("woyou.aidlservice.jiuv5.COVER_OPEN_ACTION".equals(action)) {
+                currentPrinterError = getString(R.string.kitchen_printer_state_cover_open);
+            } else if ("woyou.aidlservice.jiuv5.OVER_HEATING_ACITON".equals(action)) {
+                currentPrinterError = getString(R.string.kitchen_printer_state_overheating);
+            } else if ("woyou.aidlservice.jiuv5.ERROR_ACTION".equals(action)) {
+                currentPrinterError = "Hardware failure";
+            } else if ("woyou.aidlservice.jiuv5.NORMAL_ACTION".equals(action)) {
+                currentPrinterError = null;
+            }
+
+            uiHandler.post(() -> {
+                if (currentPrinterError != null) {
+                    binding.statusText.setText(getString(R.string.kitchen_printer_error, currentPrinterError));
+                } else {
+                    binding.statusText.setText("Printer state: Normal");
+                }
+            });
+        }
+    };
+
+    private final ServiceConnection printerConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            printerService = IWoyouService.Stub.asInterface(service);
+            isPrinterBound = true;
+            Log.d(TAG, "Printer service connected");
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            printerService = null;
+            isPrinterBound = false;
+            Log.d(TAG, "Printer service disconnected");
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,9 +185,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
             }
         });
 
-        binding.buttonPrintList.setOnClickListener(v ->
-                Toast.makeText(this, R.string.kitchen_print_list_selected, Toast.LENGTH_SHORT).show()
-        );
+        binding.buttonPrintList.setOnClickListener(v -> printTestReceipt());
 
         binding.buttonGrocy.setOnClickListener(v -> {
             Intent intent = new Intent(this, MainActivity.class);
@@ -116,6 +209,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
 
         toneGenerator = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100);
 
+        bindPrinterService();
         setupObservers();
         updateModeText();
     }
@@ -144,11 +238,116 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         });
     }
 
+    private void bindPrinterService() {
+        Intent intent = new Intent();
+        intent.setPackage("woyou.aidlservice.jiuiv5");
+        intent.setAction("woyou.aidlservice.jiuiv5.IWoyouService");
+        try {
+            boolean result = bindService(intent, printerConnection, Context.BIND_AUTO_CREATE);
+            Log.d(TAG, "DIAG: Printer bind result: " + result);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to bind to printer service", e);
+        }
+    }
+
+    private void printTestReceipt() {
+        if (printerService == null) {
+            binding.statusText.setText(getString(R.string.kitchen_printer_error, getString(R.string.kitchen_printer_unavailable)));
+            return;
+        }
+
+        Drawable icon = binding.buttonPrintList.getIcon();
+        if (icon instanceof AnimatedVectorDrawable) {
+            ((AnimatedVectorDrawable) icon).start();
+        }
+
+        executor.execute(() -> {
+            try {
+                uiHandler.post(() -> binding.statusText.setText(R.string.kitchen_printer_test_printing));
+
+                Log.d(TAG, "DIAG: Binder call START -> updatePrinterState");
+                int state = printerService.updatePrinterState();
+                Log.d(TAG, "DIAG: Binder call END -> updatePrinterState: " + state);
+
+                if (state >= 4 && state <= 9) {
+                    currentPrinterError = getPrinterErrorName(state);
+                    uiHandler.post(() -> {
+                        binding.statusText.setText(getString(R.string.kitchen_printer_error, currentPrinterError));
+                        if (icon instanceof AnimatedVectorDrawable) {
+                            ((AnimatedVectorDrawable) icon).stop();
+                        }
+                    });
+                    return;
+                } else if (state != 1) {
+                    Log.w(TAG, "Printer state inconclusive: " + state + "; attempting test print anyway");
+                }
+
+                Log.d(TAG, "DIAG: Binder call START -> setAlignment(1)");
+                printerService.setAlignment(1, printerCallback);
+                Log.d(TAG, "DIAG: Binder call END -> setAlignment(1)");
+
+                Log.d(TAG, "DIAG: Binder call START -> printText");
+                printerService.printText("================================\n", printerCallback);
+                printerService.printText("        KITCHEN SCANNER         \n", printerCallback);
+                printerService.printText("================================\n\n", printerCallback);
+                Log.d(TAG, "DIAG: Binder call END -> printText");
+                
+                Log.d(TAG, "DIAG: Binder call START -> setAlignment(0)");
+                printerService.setAlignment(0, printerCallback);
+                Log.d(TAG, "DIAG: Binder call END -> setAlignment(0)");
+
+                Log.d(TAG, "DIAG: Binder call START -> printText(Body)");
+                printerService.printText("Printer hardware test\n\n", printerCallback);
+                printerService.printText("If this printed, the built-in\n", printerCallback);
+                printerService.printText("SUNMI printer is working.\n\n", printerCallback);
+                printerService.printText("================================\n", printerCallback);
+                Log.d(TAG, "DIAG: Binder call END -> printText(Body)");
+                
+                Log.d(TAG, "DIAG: Binder call START -> lineWrap(4)");
+                printerService.lineWrap(4, printerCallback);
+                Log.d(TAG, "DIAG: Binder call END -> lineWrap(4)");
+                
+                uiHandler.post(() -> {
+                    if (currentPrinterError == null) {
+                        binding.statusText.setText("Print command submitted");
+                    }
+                    if (icon instanceof AnimatedVectorDrawable) {
+                        ((AnimatedVectorDrawable) icon).stop();
+                    }
+                });
+
+            } catch (RemoteException e) {
+                Log.e(TAG, "Printer Binder call failed", e);
+                uiHandler.post(() -> {
+                    binding.statusText.setText(getString(R.string.kitchen_printer_error, getString(R.string.kitchen_printer_remote_exception)));
+                    if (icon instanceof AnimatedVectorDrawable) {
+                        ((AnimatedVectorDrawable) icon).stop();
+                    }
+                });
+            }
+        });
+    }
+
+    private String getPrinterErrorName(int state) {
+        switch (state) {
+            case 1: return "Normal";
+            case 2: return getString(R.string.kitchen_printer_state_updating);
+            case 3: return getString(R.string.kitchen_printer_state_exception);
+            case 4: return getString(R.string.kitchen_printer_state_out_of_paper);
+            case 5: return getString(R.string.kitchen_printer_state_overheating);
+            case 6: return getString(R.string.kitchen_printer_state_cover_open);
+            case 7: return getString(R.string.kitchen_printer_state_cutter_abnormal);
+            case 8: return getString(R.string.kitchen_printer_state_cutter_recovery);
+            case 9: return getString(R.string.kitchen_printer_state_black_mark);
+            default: return "Unknown (" + state + ")";
+        }
+    }
+
     private void scheduleResume(long delay) {
         if (isFinishing() || isDestroyed()) return;
 
         if (resumeRunnable != null) {
-            resumeHandler.removeCallbacks(resumeRunnable);
+            uiHandler.removeCallbacks(resumeRunnable);
         }
 
         resumeRunnable = () -> {
@@ -164,7 +363,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
                 }
             }
         };
-        resumeHandler.postDelayed(resumeRunnable, delay);
+        uiHandler.postDelayed(resumeRunnable, delay);
     }
 
     private void setTorch(boolean on) {
@@ -213,6 +412,14 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         } catch (Exception e) {
             Log.e(TAG, "Error in onResume", e);
         }
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("woyou.aidlservice.jiuv5.NORMAL_ACTION");
+        filter.addAction("woyou.aidlservice.jiuv5.OUT_OF_PAPER_ACTION");
+        filter.addAction("woyou.aidlservice.jiuv5.COVER_OPEN_ACTION");
+        filter.addAction("woyou.aidlservice.jiuv5.ERROR_ACTION");
+        filter.addAction("woyou.aidlservice.jiuv5.OVER_HEATING_ACITON");
+        registerReceiver(printerStatusReceiver, filter);
     }
 
     @Override
@@ -220,12 +427,18 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         super.onPause();
         setTorch(false);
         if (resumeRunnable != null) {
-            resumeHandler.removeCallbacks(resumeRunnable);
+            uiHandler.removeCallbacks(resumeRunnable);
         }
         try {
             capture.onPause();
         } catch (Exception e) {
             Log.e(TAG, "Error in onPause", e);
+        }
+
+        try {
+            unregisterReceiver(printerStatusReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "Receiver not registered");
         }
     }
 
@@ -234,7 +447,7 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         super.onStop();
         setTorch(false);
         if (resumeRunnable != null) {
-            resumeHandler.removeCallbacks(resumeRunnable);
+            uiHandler.removeCallbacks(resumeRunnable);
         }
     }
 
@@ -243,7 +456,15 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         super.onDestroy();
         setTorch(false);
         if (resumeRunnable != null) {
-            resumeHandler.removeCallbacks(resumeRunnable);
+            uiHandler.removeCallbacks(resumeRunnable);
+        }
+        if (isPrinterBound) {
+            try {
+                unbindService(printerConnection);
+            } catch (Exception e) {
+                Log.w(TAG, "Error unbinding printer service", e);
+            }
+            isPrinterBound = false;
         }
         try {
             capture.onDestroy();
@@ -270,32 +491,31 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
     @Override
     public void onBarcodeResult(BarcodeResult result) {
         if (result != null && result.getText() != null && !result.getText().isEmpty()) {
-            String barcode = result.getText();
-            long currentTime = System.currentTimeMillis();
+            final String barcode = result.getText();
+            final long currentTime = System.currentTimeMillis();
+            final boolean isConsume = (currentMode == Mode.CONSUME);
 
-            if (currentMode == Mode.CONSUME || currentMode == Mode.PURCHASE) {
-                if (viewModel.isBusy()) {
-                    Log.d(TAG, "DIAG: Barcode ignored: request in progress");
-                } else if (barcode.equals(lastProcessedBarcode) && (currentTime - lastProcessedTime < BARCODE_DEBOUNCE_MS)) {
-                    Log.d(TAG, "DIAG: Barcode ignored: debounce active for " + barcode);
-                    scheduleResume(BARCODE_DEBOUNCE_MS - (currentTime - lastProcessedTime));
+            if (viewModel.isBusy()) {
+                Log.d(TAG, "DIAG: Barcode ignored: request in progress");
+            } else if (barcode.equals(lastProcessedBarcode) && (currentTime - lastProcessedTime < BARCODE_DEBOUNCE_MS)) {
+                Log.d(TAG, "DIAG: Barcode ignored: debounce active for " + barcode);
+                scheduleResume(BARCODE_DEBOUNCE_MS - (currentTime - lastProcessedTime));
+            } else {
+                lastProcessedBarcode = barcode;
+                lastProcessedTime = currentTime;
+                
+                setTorch(false);
+
+                Bitmap bitmap = result.getBitmap();
+                if (bitmap != null) {
+                    executor.execute(() -> {
+                        byte[] bytes = PictureUtil.convertBitmapToByteArray(bitmap);
+                        new Handler(Looper.getMainLooper()).post(() -> 
+                            viewModel.lookupBarcode(barcode, bytes, isConsume)
+                        );
+                    });
                 } else {
-                    lastProcessedBarcode = barcode;
-                    lastProcessedTime = currentTime;
-                    
-                    setTorch(false); // Off during processing to prevent glare
-
-                    Bitmap bitmap = result.getBitmap();
-                    if (bitmap != null) {
-                        executor.execute(() -> {
-                            byte[] bytes = PictureUtil.convertBitmapToByteArray(bitmap);
-                            new Handler(Looper.getMainLooper()).post(() -> 
-                                viewModel.lookupBarcode(barcode, bytes, currentMode == Mode.CONSUME)
-                            );
-                        });
-                    } else {
-                        viewModel.lookupBarcode(barcode, null, currentMode == Mode.CONSUME);
-                    }
+                    viewModel.lookupBarcode(barcode, null, isConsume);
                 }
             }
         } else {

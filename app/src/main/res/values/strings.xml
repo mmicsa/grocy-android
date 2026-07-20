@@ -1420,4 +1420,17 @@
   <string name="kitchen_led">LED</string>
   <string name="kitchen_label_kitchen">Automated</string>
   <string name="kitchen_label_grocy">Grocy</string>
+  <string name="kitchen_printer_test_printing">Printing test...</string>
+  <string name="kitchen_printer_test_sent">Printer test sent</string>
+  <string name="kitchen_printer_error">Printer error: %1$s</string>
+  <string name="kitchen_printer_unavailable">Service unavailable</string>
+  <string name="kitchen_printer_remote_exception">Remote exception</string>
+  <string name="kitchen_printer_state_updating">Printer updating</string>
+  <string name="kitchen_printer_state_exception">Status query exception</string>
+  <string name="kitchen_printer_state_out_of_paper">Out of paper</string>
+  <string name="kitchen_printer_state_overheating">Overheating</string>
+  <string name="kitchen_printer_state_cover_open">Cover open</string>
+  <string name="kitchen_printer_state_cutter_abnormal">Cutter abnormal</string>
+  <string name="kitchen_printer_state_cutter_recovery">Cutter recovery</string>
+  <string name="kitchen_printer_state_black_mark">Black mark not detected</string>
 </resources>

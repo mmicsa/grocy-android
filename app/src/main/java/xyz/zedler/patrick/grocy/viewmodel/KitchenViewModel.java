@@ -118,7 +118,7 @@ public class KitchenViewModel extends BaseViewModel {
                     }
                 } else {
                     Log.d(TAG, "DIAG: [Op " + opId + "] Lookup RESULT: NOT_FOUND (Success but empty data). Starting unknown creation.");
-                    processUnknownBarcode(opId, barcode, pictureData);
+                    processUnknownBarcode(opId, barcode, pictureData, isConsume);
                 }
             } catch (Exception e) {
                 Log.e(TAG, "DIAG: [Op " + opId + "] Lookup RESULT: SERVER_ERROR (Parse failed). Response: " + response, e);
@@ -148,7 +148,7 @@ public class KitchenViewModel extends BaseViewModel {
 
             if (isNotFound) {
                 Log.d(TAG, "DIAG: [Op " + opId + "] Lookup RESULT: NOT_FOUND (" + status + "). Starting unknown creation flow...");
-                processUnknownBarcode(opId, barcode, pictureData);
+                processUnknownBarcode(opId, barcode, pictureData, isConsume);
             } else if (error != null && error.networkResponse == null) {
                 Log.e(TAG, "DIAG: [Op " + opId + "] Lookup RESULT: NETWORK_ERROR (No response). Message: " + error.getMessage());
                 logNetworkError(opId, "Direct Lookup", url, error);
@@ -220,7 +220,7 @@ public class KitchenViewModel extends BaseViewModel {
         );
     }
 
-    private void processUnknownBarcode(final String opId, final String barcode, @Nullable final byte[] pictureData) {
+    private void processUnknownBarcode(final String opId, final String barcode, @Nullable final byte[] pictureData, final boolean isConsume) {
         if (isBusy()) return;
 
         Log.d(TAG, "DIAG: [Op " + opId + "] --- START UNKNOWN CREATION FLOW ---");
@@ -241,11 +241,11 @@ public class KitchenViewModel extends BaseViewModel {
             return;
         }
 
-        fetchProductsAndCreate(opId, barcode, pictureData, kitchen, piece, false);
+        fetchProductsAndCreate(opId, barcode, pictureData, kitchen, piece, false, isConsume);
     }
 
     private void fetchProductsAndCreate(final String opId, final String barcode, @Nullable final byte[] pictureData, 
-                                        final Location kitchen, final QuantityUnit piece, final boolean isRetry) {
+                                        final Location kitchen, final QuantityUnit piece, final boolean isRetry, final boolean isConsume) {
         
         isCreatingUnknown = true;
         isProcessingLive.setValue(true);
@@ -260,7 +260,7 @@ public class KitchenViewModel extends BaseViewModel {
             Log.d(TAG, "DIAG: [Op " + opId + "] Fetched " + (freshProducts != null ? freshProducts.size() : 0) + " products for name generation.");
             
             String nextName = generateNextName(opId, freshProducts);
-            createProduct(opId, barcode, pictureData, kitchen, piece, nextName, isRetry);
+            createProduct(opId, barcode, pictureData, kitchen, piece, nextName, isRetry, isConsume);
             
         }, error -> {
             logNetworkError(opId, "Step 2 (Fetch Products)", url, error);
@@ -295,14 +295,14 @@ public class KitchenViewModel extends BaseViewModel {
     }
 
     private void createProduct(final String opId, final String barcode, @Nullable final byte[] pictureData, 
-                               final Location kitchen, final QuantityUnit piece, final String productName, final boolean isRetry) {
+                               final Location kitchen, final QuantityUnit piece, final String productName, final boolean isRetry, final boolean isConsume) {
         
         String timestamp = dateUtil.getLocalizedDate(DateUtil.getDateStringToday(), DateUtil.FORMAT_MEDIUM) 
                 + " " + new java.text.SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(new java.util.Date());
 
         Product newProduct = new Product(getSharedPrefs());
         newProduct.setName(productName);
-        newProduct.setDescription("Created in KitchenActivity at " + timestamp);
+        newProduct.setDescription("Created in Automated screen at " + timestamp);
         newProduct.setLocationId(String.valueOf(kitchen.getId()));
         newProduct.setQuIdPurchase(piece.getId());
         newProduct.setQuIdStock(piece.getId());
@@ -319,7 +319,7 @@ public class KitchenViewModel extends BaseViewModel {
             Log.d(TAG, "DIAG: [Op " + opId + "] Step 3 Success. Response: " + (response != null ? response.toString() : "<empty>"));
             try {
                 int productId = response.getInt("created_object_id");
-                safetyCheckBarcode(opId, productId, barcode, productName, pictureData);
+                safetyCheckBarcode(opId, productId, barcode, productName, pictureData, isConsume);
             } catch (JSONException e) {
                 Log.e(TAG, "DIAG: [Op " + opId + "] Step 3 FAILED: JSON Error", e);
                 resetState();
@@ -341,7 +341,7 @@ public class KitchenViewModel extends BaseViewModel {
             
             if (isDuplicate && !isRetry) {
                 Log.w(TAG, "DIAG: [Op " + opId + "] Collision detected for name [" + productName + "]. Retrying once...");
-                fetchProductsAndCreate(opId, barcode, pictureData, kitchen, piece, true);
+                fetchProductsAndCreate(opId, barcode, pictureData, kitchen, piece, true, isConsume);
             } else {
                 resetState();
                 scanStatusLive.setValue(getString(R.string.error_network) + " (Create Product)");
@@ -350,7 +350,7 @@ public class KitchenViewModel extends BaseViewModel {
         });
     }
 
-    private void safetyCheckBarcode(final String opId, final int newProductId, final String barcode, final String productName, @Nullable final byte[] pictureData) {
+    private void safetyCheckBarcode(final String opId, final int newProductId, final String barcode, final String productName, @Nullable final byte[] pictureData, final boolean isConsume) {
         String url = grocyApi.getStockProductByBarcode(barcode);
         Log.d(TAG, "DIAG: [Op " + opId + "] Step 3.5: Safety Barcode Lookup before assignment. URL: " + url);
 
@@ -363,20 +363,24 @@ public class KitchenViewModel extends BaseViewModel {
                     Product product = details.getProduct();
                     Log.d(TAG, "DIAG: [Op " + opId + "] Stopping placeholder assignment. Using existing product: " + product.getName());
                     resetState();
-                    consumeProduct(product, barcode);
+                    if (isConsume) {
+                        consumeProduct(product, barcode);
+                    } else {
+                        purchaseProduct(product, barcode);
+                    }
                 } else {
-                    assignBarcode(opId, newProductId, barcode, productName, pictureData);
+                    assignBarcode(opId, newProductId, barcode, productName, pictureData, isConsume);
                 }
             } catch (Exception e) {
-                assignBarcode(opId, newProductId, barcode, productName, pictureData);
+                assignBarcode(opId, newProductId, barcode, productName, pictureData, isConsume);
             }
         }, error -> {
             Log.d(TAG, "DIAG: [Op " + opId + "] Safety Check: Barcode still unassigned (404 expected). Proceeding.");
-            assignBarcode(opId, newProductId, barcode, productName, pictureData);
+            assignBarcode(opId, newProductId, barcode, productName, pictureData, isConsume);
         });
     }
 
-    private void assignBarcode(final String opId, final int productId, final String barcode, final String productName, @Nullable final byte[] pictureData) {
+    private void assignBarcode(final String opId, final int productId, final String barcode, final String productName, @Nullable final byte[] pictureData, final boolean isConsume) {
         ProductBarcode productBarcode = new ProductBarcode();
         productBarcode.setProductIdInt(productId);
         productBarcode.setBarcode(barcode);
@@ -392,7 +396,7 @@ public class KitchenViewModel extends BaseViewModel {
             payload,
             response -> {
                 Log.d(TAG, "DIAG: [Op " + opId + "] Step 4 Success. Response: " + (response != null ? response.toString() : "<empty>"));
-                addInitialStock(opId, productId, productName, pictureData);
+                addInitialStock(opId, productId, productName, pictureData, isConsume);
             },
             error -> {
                 logNetworkError(opId, "Step 4 (Assign Barcode)", url, error);
@@ -403,7 +407,7 @@ public class KitchenViewModel extends BaseViewModel {
         );
     }
 
-    private void addInitialStock(final String opId, final int productId, final String productName, @Nullable final byte[] pictureData) {
+    private void addInitialStock(final String opId, final int productId, final String productName, @Nullable final byte[] pictureData, final boolean isConsume) {
         JSONObject body = new JSONObject();
         try {
             body.put("amount", "1");
@@ -416,8 +420,13 @@ public class KitchenViewModel extends BaseViewModel {
         dlHelper.postWithArray(url, body, response -> {
             Log.d(TAG, "DIAG: [Op " + opId + "] Step 5 Success. Response: " + (response != null ? response.toString() : "<empty>"));
             resetState();
-            successMessageLive.setValue(getString(R.string.kitchen_created_msg, productName));
-            sendEvent(Event.TRANSACTION_SUCCESS);
+            if (isConsume) {
+                successMessageLive.setValue(getString(R.string.kitchen_created_msg, productName));
+                sendEvent(Event.TRANSACTION_SUCCESS);
+            } else {
+                successMessageLive.setValue(getString(R.string.kitchen_purchased_msg, productName));
+                sendEvent(Event.PURCHASE_SUCCESS);
+            }
             sendEvent(Event.CONTINUE_SCANNING);
             if (pictureData != null) {
                 uploadPictureAsync(opId, productId, pictureData);
