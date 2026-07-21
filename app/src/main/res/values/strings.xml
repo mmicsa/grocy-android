@@ -740,6 +740,15 @@
   <string name="subtitle_recipe_due_score">Due score: %1$s</string>
   <string name="subtitle_per_serving">per serving</string>
   <string name="subtitle_tap_preparation_mode">Tap here for preparation mode</string>
+  <string name="title_edit_server_url">Edit server URL</string>
+  <string name="title_printer_darkness">Printer darkness</string>
+  <string name="title_printer_darkness_standard">Standard</string>
+  <string name="title_printer_darkness_dark">Dark</string>
+  <string name="title_printer_darkness_darker">Darker</string>
+  <string name="title_printer_darkness_darkest">Darkest</string>
+  <string name="action_print_density_test">Print density test</string>
+  <string name="error_invalid_url_scheme">URL must start with http:// or https://</string>
+
   <!-- Context is Label printer -->
   <string name="subtitle_print_label_no">No label</string>
   <!-- Short form for "One label per purchase" -->
@@ -1420,6 +1429,9 @@
   <string name="kitchen_led">LED</string>
   <string name="kitchen_label_kitchen">Automated</string>
   <string name="kitchen_label_grocy">Grocy</string>
+  <string name="kitchen_status_fetching_list">Retrieving shopping list…</string>
+  <string name="kitchen_error_fetch_list">Unable to retrieve shopping list</string>
+  <string name="kitchen_status_list_printed">Shopping list printed</string>
   <string name="kitchen_printer_test_printing">Printing test...</string>
   <string name="kitchen_printer_test_sent">Printer test sent</string>
   <string name="kitchen_printer_error">Printer error: %1$s</string>

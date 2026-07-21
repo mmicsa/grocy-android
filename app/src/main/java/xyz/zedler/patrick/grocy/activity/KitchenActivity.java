@@ -42,6 +42,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.preference.PreferenceManager;
 import com.journeyapps.barcodescanner.BarcodeResult;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import woyou.aidlservice.jiuiv5.ICallback;
@@ -51,6 +53,7 @@ import xyz.zedler.patrick.grocy.databinding.ActivityKitchenBinding;
 import xyz.zedler.patrick.grocy.model.Event;
 import xyz.zedler.patrick.grocy.scanner.ZXingScanCaptureManager;
 import xyz.zedler.patrick.grocy.util.PictureUtil;
+import xyz.zedler.patrick.grocy.util.PrinterUtil;
 import xyz.zedler.patrick.grocy.viewmodel.KitchenViewModel;
 
 public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptureManager.BarcodeListener {
@@ -185,7 +188,26 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
             }
         });
 
-        binding.buttonPrintList.setOnClickListener(v -> printTestReceipt());
+        binding.buttonPrintList.setOnClickListener(v -> {
+            if (viewModel.isBusy()) return;
+            
+            Drawable icon = binding.buttonPrintList.getIcon();
+            if (icon instanceof AnimatedVectorDrawable) {
+                ((AnimatedVectorDrawable) icon).start();
+            }
+            binding.statusText.setText(R.string.kitchen_status_fetching_list);
+            
+            viewModel.fetchShoppingList(itemNames -> {
+                if (itemNames != null) {
+                    printShoppingList(itemNames);
+                } else {
+                    binding.statusText.setText(R.string.kitchen_error_fetch_list);
+                    if (icon instanceof AnimatedVectorDrawable) {
+                        ((AnimatedVectorDrawable) icon).stop();
+                    }
+                }
+            });
+        });
 
         binding.buttonGrocy.setOnClickListener(v -> {
             Intent intent = new Intent(this, MainActivity.class);
@@ -250,21 +272,15 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
         }
     }
 
-    private void printTestReceipt() {
+    private void printShoppingList(List<String> itemNames) {
         if (printerService == null) {
             binding.statusText.setText(getString(R.string.kitchen_printer_error, getString(R.string.kitchen_printer_unavailable)));
             return;
         }
 
         Drawable icon = binding.buttonPrintList.getIcon();
-        if (icon instanceof AnimatedVectorDrawable) {
-            ((AnimatedVectorDrawable) icon).start();
-        }
-
         executor.execute(() -> {
             try {
-                uiHandler.post(() -> binding.statusText.setText(R.string.kitchen_printer_test_printing));
-
                 Log.d(TAG, "DIAG: Binder call START -> updatePrinterState");
                 int state = printerService.updatePrinterState();
                 Log.d(TAG, "DIAG: Binder call END -> updatePrinterState: " + state);
@@ -279,37 +295,38 @@ public class KitchenActivity extends AppCompatActivity implements ZXingScanCaptu
                     });
                     return;
                 } else if (state != 1) {
-                    Log.w(TAG, "Printer state inconclusive: " + state + "; attempting test print anyway");
+                    Log.w(TAG, "Printer state inconclusive: " + state + "; attempting print anyway");
                 }
 
-                Log.d(TAG, "DIAG: Binder call START -> setAlignment(1)");
-                printerService.setAlignment(1, printerCallback);
-                Log.d(TAG, "DIAG: Binder call END -> setAlignment(1)");
+                PrinterUtil.setBold(printerService, true);
 
-                Log.d(TAG, "DIAG: Binder call START -> printText");
-                printerService.printText("================================\n", printerCallback);
-                printerService.printText("        KITCHEN SCANNER         \n", printerCallback);
-                printerService.printText("================================\n\n", printerCallback);
-                Log.d(TAG, "DIAG: Binder call END -> printText");
+                PrinterUtil.printHeading(printerService, "================================\n", null);
+                PrinterUtil.printHeading(printerService, "         SHOPPING LIST          \n", null);
+                PrinterUtil.printHeading(printerService, "================================\n", null);
                 
-                Log.d(TAG, "DIAG: Binder call START -> setAlignment(0)");
-                printerService.setAlignment(0, printerCallback);
-                Log.d(TAG, "DIAG: Binder call END -> setAlignment(0)");
+                if (itemNames.isEmpty()) {
+                    PrinterUtil.printBody(printerService, "\n(No items)\n", null);
+                } else {
+                    printerService.printText("\n", null);
+                    for (String name : itemNames) {
+                        PrinterUtil.printBody(printerService, "[ ] " + name + "\n\n", null);
+                    }
+                }
 
-                Log.d(TAG, "DIAG: Binder call START -> printText(Body)");
-                printerService.printText("Printer hardware test\n\n", printerCallback);
-                printerService.printText("If this printed, the built-in\n", printerCallback);
-                printerService.printText("SUNMI printer is working.\n\n", printerCallback);
-                printerService.printText("================================\n", printerCallback);
-                Log.d(TAG, "DIAG: Binder call END -> printText(Body)");
+                String timestamp = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(new java.util.Date());
                 
-                Log.d(TAG, "DIAG: Binder call START -> lineWrap(4)");
+                printerService.printText("\n--------------------------------\n", null);
+                PrinterUtil.printSmall(printerService, "Items: " + itemNames.size() + "\n", null);
+                PrinterUtil.printSmall(printerService, "Printed: " + timestamp + "\n", null);
+                PrinterUtil.printHeading(printerService, "================================\n", printerCallback);
+                
                 printerService.lineWrap(4, printerCallback);
-                Log.d(TAG, "DIAG: Binder call END -> lineWrap(4)");
                 
+                PrinterUtil.resetFormatting(printerService);
+
                 uiHandler.post(() -> {
                     if (currentPrinterError == null) {
-                        binding.statusText.setText("Print command submitted");
+                        binding.statusText.setText(R.string.kitchen_status_list_printed);
                     }
                     if (icon instanceof AnimatedVectorDrawable) {
                         ((AnimatedVectorDrawable) icon).stop();

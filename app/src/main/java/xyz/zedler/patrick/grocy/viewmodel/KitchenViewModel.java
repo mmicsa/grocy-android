@@ -43,6 +43,7 @@ import xyz.zedler.patrick.grocy.model.Product;
 import xyz.zedler.patrick.grocy.model.ProductBarcode;
 import xyz.zedler.patrick.grocy.model.ProductDetails;
 import xyz.zedler.patrick.grocy.model.QuantityUnit;
+import xyz.zedler.patrick.grocy.model.ShoppingListItem;
 import xyz.zedler.patrick.grocy.repository.InventoryRepository;
 import xyz.zedler.patrick.grocy.util.DateUtil;
 
@@ -86,6 +87,63 @@ public class KitchenViewModel extends BaseViewModel {
         }, error -> {
             Log.e(TAG, "DIAG: Failed to load local data", (Throwable) error);
             onError(error, TAG);
+        });
+    }
+
+    public interface OnShoppingListFetchedListener {
+        void onFetched(@Nullable List<String> itemNames);
+    }
+
+    public void fetchShoppingList(OnShoppingListFetchedListener listener) {
+        if (isBusy()) return;
+
+        isProcessingLive.setValue(true);
+        String url = grocyApi.getObjects(GrocyApi.ENTITY.SHOPPING_LIST);
+        Log.d(TAG, "DIAG: Fetching shopping list from: " + url);
+
+        dlHelper.get(url, "fetch_list", response -> {
+            isProcessingLive.setValue(false);
+            try {
+                Type type = new TypeToken<List<ShoppingListItem>>() {}.getType();
+                List<ShoppingListItem> items = dlHelper.gson.fromJson(response, type);
+                
+                List<String> names = new java.util.ArrayList<>();
+                int unresolvedCount = 0;
+                if (items != null) {
+                    for (ShoppingListItem item : items) {
+                        if (item.isUndone()) {
+                            String name = null;
+                            if (item.hasProduct()) {
+                                Product p = Product.getProductFromId(products, item.getProductIdInt());
+                                if (p != null) {
+                                    name = p.getName();
+                                } else {
+                                    unresolvedCount++;
+                                }
+                            }
+                            if (name == null) {
+                                name = item.getNote();
+                            }
+                            if (name == null || name.isBlank()) {
+                                name = "UNKNOWN ITEM";
+                            }
+                            names.add(name.trim().toUpperCase(Locale.ROOT));
+                        }
+                    }
+                }
+                Log.d(TAG, "DIAG: Shopping list fetch result: " + (items != null ? items.size() : 0) + " total rows, " 
+                        + unresolvedCount + " unresolved products, " + names.size() + " printable items.");
+                
+                java.util.Collections.sort(names);
+                listener.onFetched(names);
+            } catch (Exception e) {
+                Log.e(TAG, "DIAG: Failed to parse shopping list", e);
+                listener.onFetched(null);
+            }
+        }, error -> {
+            isProcessingLive.setValue(false);
+            Log.e(TAG, "DIAG: Failed to fetch shopping list", error);
+            listener.onFetched(null);
         });
     }
 

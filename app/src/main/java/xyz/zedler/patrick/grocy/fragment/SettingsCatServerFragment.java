@@ -21,19 +21,24 @@
 package xyz.zedler.patrick.grocy.fragment;
 
 import android.content.Intent;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.preference.PreferenceManager;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import xyz.zedler.patrick.grocy.Constants;
 import xyz.zedler.patrick.grocy.R;
 import xyz.zedler.patrick.grocy.activity.MainActivity;
@@ -164,6 +169,59 @@ public class SettingsCatServerFragment extends BaseFragment {
       return;
     }
     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(serverUrl)));
+  }
+
+  public void showEditServerUrlDialog() {
+    View view = LayoutInflater.from(activity).inflate(R.layout.dialog_edit_text, null);
+    TextInputLayout layout = view.findViewById(R.id.text_input_layout);
+    TextInputEditText editText = view.findViewById(R.id.edit_text);
+
+    String currentUrl = viewModel.getServerUrl();
+    editText.setText(currentUrl);
+    if (currentUrl != null) {
+      editText.setSelection(currentUrl.length());
+    }
+    layout.setHint(getString(R.string.hint_server));
+
+    AlertDialog dialog = new MaterialAlertDialogBuilder(activity)
+        .setTitle(R.string.title_edit_server_url)
+        .setView(view)
+        .setPositiveButton(R.string.action_save, null)
+        .setNegativeButton(R.string.action_cancel, (d, which) -> performHapticClick())
+        .create();
+
+    dialog.setOnShowListener(d -> {
+      Button button = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+      button.setOnClickListener(v -> {
+        performHapticHeavyClick();
+        String input = editText.getText() != null ? editText.getText().toString().trim() : "";
+        Uri uri = Uri.parse(input);
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+
+        if (input.isEmpty()) {
+          layout.setError(getString(R.string.error_empty));
+        } else if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+          layout.setError(getString(R.string.error_invalid_url_scheme));
+        } else if (host == null || host.isEmpty()) {
+          layout.setError(getString(R.string.error_invalid_url));
+        } else {
+          layout.setError(null);
+          if (!input.equals(currentUrl)) {
+            PreferenceManager.getDefaultSharedPreferences(activity)
+                .edit()
+                .putString(Constants.PREF.SERVER_URL, input)
+                .apply();
+            dialog.dismiss();
+            showRestartDialog();
+          } else {
+            dialog.dismiss();
+          }
+        }
+      });
+    });
+
+    dialog.show();
   }
 
   public void showRestartDialog() {

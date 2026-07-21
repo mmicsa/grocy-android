@@ -203,6 +203,7 @@ public final class Constants {
       public final static String DECIMAL_PLACES_PRICES_INPUT = "stock_decimal_places_prices_input"; // used for pref sync, DO NOT EDIT VALUE
       public final static String DECIMAL_PLACES_PRICES_DISPLAY = "stock_decimal_places_prices_display"; // used for pref sync, DO NOT EDIT VALUE
       public final static String AUTO_DECIMAL_SEPARATOR_PRICES = "stock_auto_decimal_separator_prices"; // used for pref sync, DO NOT EDIT VALUE
+      public final static String PRINTER_DARKNESS = "printer_darkness";
     }
 
     public final static class SHOPPING_LIST {

@@ -112,7 +112,7 @@
               style="@style/Widget.Grocy.LinearLayout.ListItem.TwoLine.Clickable"
               android:layout_width="match_parent"
               android:layout_height="wrap_content"
-              android:onClick="@{v -> fragment.openServerWebsite()}"
+              android:onClick="@{v -> fragment.showEditServerUrlDialog()}"
               app:clickUtil="@{clickUtil}">
 
               <ImageView
@@ -132,6 +132,24 @@
                   android:maxLines="6" />
 
               </LinearLayout>
+
+              <com.google.android.material.button.MaterialButton
+                style="@style/Widget.Grocy.Button.IconButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:onClick="@{v -> fragment.showEditServerUrlDialog()}"
+                app:icon="@drawable/ic_round_edit"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp" />
+
+              <com.google.android.material.button.MaterialButton
+                style="@style/Widget.Grocy.Button.IconButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:onClick="@{v -> fragment.openServerWebsite()}"
+                app:icon="@drawable/ic_round_open_in_browser_anim"
+                app:iconGravity="textStart"
+                app:iconPadding="0dp" />
 
             </LinearLayout>
 
